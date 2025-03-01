@@ -14,6 +14,7 @@ import anthropic
 import re
 import traceback
 import functools
+import fuzzywuzzy
 from PyQt5 import QtWidgets, QtCore
 
 class IDAAssistant(ida_idaapi.plugin_t):
@@ -25,29 +26,12 @@ class IDAAssistant(ida_idaapi.plugin_t):
 
     def __init__(self):
         super(IDAAssistant, self).__init__()
-        self.model = "claude-3-sonnet-20240229"
+        self.model = "claude-3-7-sonnet-latest"
         self.client = anthropic.Anthropic(
             api_key="YOUR API KEY"
         )
         self.chat_history = []
         self.message_history = []
-        
-    def init(self):
-        return ida_idaapi.PLUGIN_OK
-
-    def run(self, arg):
-        self.assistant_window = AssistantWidget()
-        self.assistant_window.Show("IDA Assistant")
-
-    def term(self):
-        pass
-
-    def add_assistant_message(self, message):
-        self.chat_history.append(f"<b>Assistant:</b> {message}") 
-        
-    def query_model(self, role, query, cb, additional_model_options=None):
-        if additional_model_options is None:
-            additional_model_options = {}
         
         system_prompt = """
         - You are IDA-Assistant, an AI designed to assist users in reverse engineering and binary analysis tasks using IDA Pro.
@@ -146,35 +130,106 @@ class IDAAssistant(ida_idaapi.plugin_t):
         - Do not provide any response or explanations outside of the specified JSON format.
         """
         
-        messages = self.message_history.copy()
-        messages.append({"role": role, "content": query})
+        self.system_prompt = [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+        
+    def init(self):
+        return ida_idaapi.PLUGIN_OK
 
-        try:
-            response = self.client.messages.create(
-                model=self.model,
-                temperature=0.0,
-                messages=messages,
-                system=system_prompt,
-                **additional_model_options
-            )
+    def run(self, arg):
+        self.assistant_window = AssistantWidget()
+        self.assistant_window.Show("IDA Assistant")
+
+    def term(self):
+        pass
+
+    def add_assistant_message(self, message):
+        self.chat_history.append(f"<b>Bob:</b> {message}") 
+        
+    def query_model(self, role, query, cb, additional_model_options=None):
+        if additional_model_options is None:
+            additional_model_options = {}
             
-            assistant_reply = response.content[0].text.strip().replace("```json\n", "").replace("```\n", "").strip()
-            print(assistant_reply)
+        self.message_history.append({"role": role, "content": query})
+        
+        import time
+        retry_delay = 10  # 재시도 대기 시간(초)
 
-            self.message_history.append({"role": role, "content": query})
-            self.message_history.append({"role": "assistant", "content": assistant_reply})            
-            self.chat_history.append(f"<b>User:</b> {query}")             
-            ida_kernwin.execute_sync(functools.partial(cb, response=assistant_reply), ida_kernwin.MFF_WRITE)
-        except Exception as e:
-            print(str(e))
-            traceback_details = traceback.format_exc()
-            print(traceback_details)
+        # 간단한 토큰 수 계산 함수 (평균 4문자/토큰 가정)
+        def count_tokens(text):
+            return len(text) // 4
+
+        while True:
+            try:
+                response = self.client.messages.create(
+                    model=self.model,
+                    max_tokens=additional_model_options.get("max_tokens", 8000),
+                    system=self.system_prompt[0]["text"],
+                    messages=self.message_history,
+                    temperature=0.0
+                )
+                break  # 성공하면 반복문 탈출
+            except anthropic.RateLimitError as e:
+                print(f"Rate limit reached: {e}. Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            except anthropic.BadRequestError as e:
+                error_msg = str(e)
+                if "prompt is too long" in error_msg:
+                    print(f"Prompt too long, attempting to truncate message history. {error_msg}")
+                    # 메시지 히스토리를 줄여 프롬프트 길이가 제한 이내가 될 때까지 오래된 메시지 제거
+                    while True:
+                        system_text = ""
+                        for item in self.system_prompt:
+                            if item.get("type") == "text":
+                                system_text += item.get("text") + "\n"
+                        messages_text = ""
+                        for m in self.message_history:
+                            if m["role"] == "assistant":
+                                messages_text += f"\n\nAssistant: {m['content']}"
+                            else:
+                                messages_text += f"\n\nHuman: {m['content']}"
+                        full_prompt = system_text + messages_text + "\n\nAssistant:"
+                        if count_tokens(full_prompt) <= 200000:
+                            break
+                        if len(self.message_history) > 1:
+                            removed = self.message_history.pop(0)
+                            print(f"Removed message to reduce prompt length: {removed}")
+                        else:
+                            print("Cannot truncate further.")
+                            break
+                    continue  # 재시도
+                else:
+                    print("BadRequestError not related to prompt length.")
+                    raise
+
+        assistant_reply = ""
+        for block in response.content:
+            if block.type == "text":
+                assistant_reply += block.text or ""
+        assistant_reply = assistant_reply.strip()
+        print(assistant_reply)
+                
+        self.message_history.append({"role": "assistant", "content": assistant_reply})
+        self.chat_history.append(f"<b>User:</b> {query}")
+        ida_kernwin.execute_sync(functools.partial(cb, response=assistant_reply), ida_kernwin.MFF_WRITE)
+
 
     def query_model_async(self, role, query, cb, additional_model_options=None):
         if additional_model_options is None:
             additional_model_options = {}
         t = threading.Thread(target=self.query_model, args=[role, query, cb, additional_model_options])
         t.start()
+        
+
+    def query_model_sync(self, role, query, cb, additional_model_options=None):
+        if additional_model_options is None:
+            additional_model_options = {}
+        self.query_model(role, query, cb, additional_model_options)
 
 class AssistantWidget(ida_kernwin.PluginForm):
     def OnCreate(self, form):
@@ -183,6 +238,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
         self.assistant = IDAAssistant()
         self.command_results = []
         self.functions = self.get_name_info()
+        self.stop_flag = False
         
     def PopulateForm(self):
         layout = QtWidgets.QVBoxLayout()
@@ -202,11 +258,23 @@ class AssistantWidget(ida_kernwin.PluginForm):
         send_button.clicked.connect(self.OnSendClicked)
         input_layout.addWidget(send_button)
         
+        # 중단 버튼
+        stop_button = QtWidgets.QPushButton("Stop")
+        stop_button.clicked.connect(self.OnStopClicked)
+        input_layout.addWidget(stop_button)
+
         layout.addLayout(input_layout)
         
         self.parent.setLayout(layout)
-        
+    
+    def OnStopClicked(self):
+        self.chat_history.append(f"<b>System Message:</b> Conversation stopped by user.")
+        self.assistant.message_history.append({"role": "user", "content": "Stop analysis"})
+        self.assistant.message_history.append({"role": "assistant", "content": "Analysis stopped by user."})
+        self.stop_flag = True
+
     def OnSendClicked(self):
+        self.stop_flag = False
         user_message = self.user_input.text().strip()
         if user_message:
             self.chat_history.append(f"<b>User:</b> {user_message}")
@@ -216,10 +284,14 @@ class AssistantWidget(ida_kernwin.PluginForm):
             
             prompt = f"{user_message}\nCurrent address: {hex(current_address)}"
             
-            self.assistant.query_model_async("user", prompt, self.OnResponseReceived, additional_model_options={"max_tokens": 1000})
+            self.assistant.query_model_async("user", prompt, self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
     
     def OnResponseReceived(self, response):
         try:
+            if self.stop_flag:
+                self.PrintOutput("Analysis stopped by user.")
+                return
+            
             assistant_reply = self.ParseResponse(response)
 
             if assistant_reply is None:
@@ -257,13 +329,13 @@ class AssistantWidget(ida_kernwin.PluginForm):
                     query += f"{command_name} result: None\n\n"
                     
             if len(query) > 0:
-                self.assistant.query_model_async("user", f"{query}", self.OnResponseReceived, additional_model_options={"max_tokens": 1000})
+                self.assistant.query_model_async("user", f"{query}", self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
 
         except Exception as e:
             traceback_details = traceback.format_exc()
             print(traceback_details)
             self.PrintOutput(f"Error parsing assistant response: {str(e)}")
-            self.assistant.query_model_async("user", f"Error parsing response. please retry:\n {str(e)}", self.OnResponseReceived, additional_model_options={"max_tokens": 1000})
+            self.assistant.query_model_async("user", f"Error parsing response. please retry:\n {str(e)}", self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
 
     def handle_eval_idc(self, args):
         try:
@@ -318,15 +390,23 @@ class AssistantWidget(ida_kernwin.PluginForm):
     def handle_decompile_function(self, args):
         try:
             name = args["name"]
-            address = idc.get_name_ea_simple(name)
-            if address != idc.BADADDR:
-                function = idaapi.get_func(function.start_ea)
-                if function:
-                    decompiled_code = idaapi.decompile(function)
-                    if decompiled_code:
-                        return str(decompiled_code)
+            name = name.strip()
+            functions = {idaapi.get_func_name(ea).strip(): ea for ea in idautils.Functions()}
+            best_match = fuzzywuzzy.process.extractOne(name, functions.keys(), score_cutoff=50)
+            if best_match:
+                if best_match[0] == name:
+                    ea = functions[best_match[0]]
+                    func = idaapi.get_func(ea)
+                    if not func:
+                        self.PrintOutput(f"No function found at address {name}")
+                        return f"No function found at address {name}"
+                    
+                    cfunc = idaapi.decompile(func, flags=ida_hexrays.DECOMP_NO_CACHE)
+                    return str(cfunc)
                 else:
-                    self.PrintOutput(f"No function found at address {name}")
+                    self.PrintOutput(f"Function '{name}' not found. Did you mean '{best_match[0]}'?")
+                    return f"Function '{name}' not found. Did you mean '{best_match[0]}'?"
+
             return None
         except Exception as e:
             return f"Error: {str(e)}"
@@ -359,30 +439,6 @@ class AssistantWidget(ida_kernwin.PluginForm):
             return f"No function found at address {hex(address)}"
         except Exception as e:
             return f"Error: {str(e)}"
-    
-    # def find_function_name_in_address(self, address, name):
-    #     try:
-    #         function = idaapi.get_func(address)
-    #         if function:
-    #             result = idaapi.decompile(function)
-    #             if result:
-    #                 for item in result.treeitems:
-    #                     if item.op == idaapi.cot_call:
-    #                         if item.cexpr.x.op == idaapi.cot_obj:
-    #                             for arg in item.cexpr.a:
-    #                                 if arg.op == idaapi.cot_obj and name in arg.print1(None):
-    #                                     if arg.obj_ea != idc.BADADDR:
-    #                                         return hex(arg.obj_ea)
-    #                             if name in item.cexpr.x.print1(None):
-    #                                 if item.cexpr.x.obj_ea != idc.BADADDR:
-    #                                     return hex(item.cexpr.x.obj_ea)
-    #                     elif item.op == idaapi.cot_cast:
-    #                         if name in item.cexpr.x.print1(None):
-    #                             if item.cexpr.x.obj_ea != idc.BADADDR:
-    #                                 return hex(item.cexpr.x.obj_ea)
-    #         return None
-    #     except Exception as e:
-    #         return None
         
     def get_name_info(self):
         name_info = []
@@ -397,9 +453,16 @@ class AssistantWidget(ida_kernwin.PluginForm):
     def search_name(self, keyword):        
         search_results = []
         
-        for name, ea in self.functions:
-            if keyword.lower() in name.lower():
-                search_results.append((name, ea))
+        temp = keyword.lower()
+        temp = temp.strip()
+        functions = {idaapi.get_func_name(ea).strip(): ea for ea in idautils.Functions()}
+        best_match = fuzzywuzzy.process.extractOne(temp, functions.keys(), score_cutoff=50)
+        if best_match:
+            if best_match[0] == temp:
+                ea = functions[best_match[0]]
+                search_results.append((best_match[0], hex(ea)))
+            else:
+                search_results.append((f"Did you mean '{best_match[0]}'?", "0x0000"))
         
         return search_results
     
