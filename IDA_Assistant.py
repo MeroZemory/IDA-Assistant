@@ -50,8 +50,14 @@ class IDAAssistant(ida_idaapi.plugin_t):
             - Name: decompile_address
                 - Description: Decompile the function at the specified address. 
                 - Args: "address": String
+            - Name: decompile_function
+                - Description: Decompile the function with the specified name.
+                - Args: "name": String
             - Name: rename_address
                 - Description: Rename the address at the specified address.
+                - Args: "address": String, "new_name": String, "old_name": String
+            - Name: rename_function_var
+                - Description: Rename the variable in the function. It uses ida_hexrays.rename_lvar function internally.
                 - Args: "address": String, "new_name": String, "old_name": String
             - Name: get_function_start_end_address
                 - Description: Get the start and end address of the function at the specified address.
@@ -71,8 +77,11 @@ class IDAAssistant(ida_idaapi.plugin_t):
             - Name: do_nothing
                 - Description: Do nothing. Use it when a series of tasks are completed.
                 - Args: None: No arguments. but it should be included in the json like {"args": {}}
-            - Name: set_comment
+            - Name: set_address_comment
                 - Description: Set a comment at the specified address.
+                - Args: "address": String, "comment": String
+            - Name: set_function_comment
+                - Description: Set a comment at the specified function.
                 - Args: "address": String, "comment": String
             - Name: get_address_type
                 - Description: Get the type of the address.
@@ -407,14 +416,16 @@ class AssistantWidget(ida_kernwin.PluginForm):
             name = args["name"]
             address = idc.get_name_ea_simple(name)
             if address != idc.BADADDR:
-                start_address = function.start_ea
-                end_address = function.end_ea
+                func = idaapi.get_func(address)
+                if func:
+                    start_address = func.start_ea
+                    end_address = func.end_ea
 
-                disassembly = ""
-                while start_address < end_address:
-                    disassembly += f"{hex(start_address)}: {idc.GetDisasm(start_address)}\n"
-                    start_address = idc.next_head(start_address)
-                return disassembly
+                    disassembly = ""
+                    while start_address < end_address:
+                        disassembly += f"{hex(start_address)}: {idc.GetDisasm(start_address)}\n"
+                        start_address = idc.next_head(start_address)
+                    return disassembly
             return f"No function found at address {name}"
         except Exception as e:
             return f"Error: {str(e)}"
@@ -430,7 +441,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
             return f"No function found at address {hex(address)}"
         except Exception as e:
             return f"Error: {str(e)}"
-
+        
     def handle_decompile_function(self, args):
         try:
             name = args["name"]
@@ -461,13 +472,13 @@ class AssistantWidget(ida_kernwin.PluginForm):
             new_name = args["new_name"]
             old_name = args["old_name"]
             if new_name and old_name:
-                ida_hexrays.rename_lvar(address, old_name, new_name)
+                idaapi.set_name(address, new_name, ida_name.SN_NOWARN)
                 result = f"Renamed address {hex(address)} from '{old_name}' to '{new_name}'"
                 # HTML 형식으로 개행을 <br> 태그로 변환
                 formatted_result = result.replace("\n", "<br>")
                 self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
                 self.PrintOutput(result)
-                return result
+                return None
             return None
         except Exception as e:
             return f"Error: {str(e)}"
@@ -517,6 +528,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
         try:
             name = args["name"]
             r = self.search_name(name)
+
             self.PrintOutput(f"Search results for '{name}': {r}")
             return r
         except Exception as e:
@@ -601,14 +613,78 @@ class AssistantWidget(ida_kernwin.PluginForm):
         self.PrintOutput(message)
         return None
 
-    def handle_set_comment(self, args):
+    def handle_set_address_comment(self, args):
+        try:
+            address = int(args["address"], 16)
+            new_comment = args["comment"]
+            
+            # 기존 코멘트 가져오기 (repeatable comment = 1)
+            existing_comment = idc.get_cmt(address, 1)
+            
+            # 기존 코멘트가 있으면 새 코멘트와 합치기
+            if existing_comment:
+                combined_comment = f"{existing_comment}\n{new_comment}"
+            else:
+                combined_comment = new_comment
+                
+            # 합쳐진 코멘트 설정
+            idc.set_cmt(address, combined_comment, 1)
+            
+            result = f"Set comment at {hex(address)}: {combined_comment}"
+            # HTML 형식으로 개행을 <br> 태그로 변환
+            formatted_result = result.replace("\n", "<br>")
+            self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+            self.PrintOutput(result)
+
+            return None
+        except Exception as e:
+            return f"Error: {str(e)}"
+    
+    def handle_set_function_comment(self, args):
         try:
             address = int(args["address"], 16)
             comment = args["comment"]
-            idc.set_cmt(address, comment, 1)
-            result = f"Set comment at {hex(address)}: {comment}"
-            self.PrintOutput(result)
-            return None
+            function = idaapi.get_func(address)
+            if function:
+                existing_comment = idc.get_func_cmt(address, 0)
+                existing_comment = re.sub(
+                    r'----- Comment generated by Bob -----.*?----------------------------------------',
+                    r"",
+                    existing_comment if existing_comment else "",
+                    flags=re.DOTALL)
+                
+                idc.set_func_cmt(address, '----- Comment generated by Bob' +
+                                    f" -----\n\n"
+                                    f"{existing_comment.strip()}\n\n"
+                                    f"----------------------------------------\n\n"
+                                    f"{comment.strip()}", 0)
+                result = f"Set comment at function {hex(address)}."
+                # HTML 형식으로 개행을 <br> 태그로 변환
+                formatted_result = result.replace("\n", "<br>")
+                self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+                self.PrintOutput(result)
+                return None
+            return f"No function found at address {hex(address)}"
+        except Exception as e:
+            return f"Error: {str(e)}"
+        
+    def handle_rename_function_var(self, args):
+        try:
+            address = int(args["address"], 16)
+            new_name = args["new_name"]
+            old_name = args["old_name"]
+            function = idaapi.get_func(address).start_ea
+            if function:
+                if ida_hexrays.rename_lvar(function, old_name, new_name):
+                    result = f"Renamed variable in function at {hex(address)} from '{old_name}' to '{new_name}'"
+                    # HTML 형식으로 개행을 <br> 태그로 변환
+                    formatted_result = result.replace("\n", "<br>")
+                    self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+                    self.PrintOutput(result)
+                    return result
+                else:
+                    return f"Failed to rename variable in function at {hex(address)}"
+            return f"No function found at address {hex(address)}"
         except Exception as e:
             return f"Error: {str(e)}"
         
