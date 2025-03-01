@@ -4,9 +4,7 @@ import ida_idaapi
 import ida_kernwin
 import ida_hexrays
 import ida_name
-import ida_funcs
 import ida_bytes
-import ida_ida
 import idc
 import idautils
 import idaapi
@@ -149,7 +147,9 @@ class IDAAssistant(ida_idaapi.plugin_t):
         pass
 
     def add_assistant_message(self, message):
-        self.chat_history.append(f"<b>Bob:</b> {message}") 
+        # HTML 형식으로 개행을 <br> 태그로 변환
+        formatted_message = message.replace("\n", "<br>")
+        self.chat_history.append(f"<b>Bob:</b> {formatted_message}") 
         
     def query_model(self, role, query, cb, additional_model_options=None):
         if additional_model_options is None:
@@ -215,7 +215,9 @@ class IDAAssistant(ida_idaapi.plugin_t):
         print(assistant_reply)
                 
         self.message_history.append({"role": "assistant", "content": assistant_reply})
-        self.chat_history.append(f"<b>User:</b> {query}")
+        # HTML 형식으로 개행을 <br> 태그로 변환
+        formatted_query = query.replace("\n", "<br>")
+        self.chat_history.append(f"<b>User:</b> {formatted_query}")
         ida_kernwin.execute_sync(functools.partial(cb, response=assistant_reply), ida_kernwin.MFF_WRITE)
 
 
@@ -230,6 +232,23 @@ class IDAAssistant(ida_idaapi.plugin_t):
         if additional_model_options is None:
             additional_model_options = {}
         self.query_model(role, query, cb, additional_model_options)
+
+class InputEventFilter(QtCore.QObject):
+    def __init__(self, parent=None, callback=None):
+        super(InputEventFilter, self).__init__(parent)
+        self.callback = callback
+        
+    def eventFilter(self, obj, event):
+        if event.type() == QtCore.QEvent.KeyPress:
+            # Shift+Enter 처리: 줄바꿈 추가
+            if event.key() == QtCore.Qt.Key_Return and event.modifiers() & QtCore.Qt.ShiftModifier:
+                return False  # 기본 동작 허용 (줄바꿈)
+            # Enter만 누를 경우 메시지 전송
+            elif event.key() == QtCore.Qt.Key_Return:
+                if self.callback:
+                    self.callback()
+                return True  # 이벤트 소비
+        return False  # 기본 이벤트 처리
 
 class AssistantWidget(ida_kernwin.PluginForm):
     def OnCreate(self, form):
@@ -251,33 +270,54 @@ class AssistantWidget(ida_kernwin.PluginForm):
         layout.addWidget(self.chat_history)
         
         input_layout = QtWidgets.QHBoxLayout()
-        self.user_input = QtWidgets.QLineEdit()
+        
+        # QLineEdit 대신 QTextEdit 사용하여 다중 라인 입력 지원
+        self.user_input = QtWidgets.QTextEdit()
+        self.user_input.setMinimumHeight(70)
+        self.user_input.setMaximumHeight(150)
+        
+        # Shift+Enter 키 처리를 위한 설정 - 별도의 QObject 기반 이벤트 필터 사용
+        self.input_event_filter = InputEventFilter(parent=self.user_input, callback=self.OnSendClicked)
+        self.user_input.installEventFilter(self.input_event_filter)
+        
         input_layout.addWidget(self.user_input)
+        
+        button_layout = QtWidgets.QVBoxLayout()
         
         send_button = QtWidgets.QPushButton("Send")
         send_button.clicked.connect(self.OnSendClicked)
-        input_layout.addWidget(send_button)
+        button_layout.addWidget(send_button)
         
         # 중단 버튼
         stop_button = QtWidgets.QPushButton("Stop")
         stop_button.clicked.connect(self.OnStopClicked)
-        input_layout.addWidget(stop_button)
-
+        button_layout.addWidget(stop_button)
+        
+        input_layout.addLayout(button_layout)
+        
         layout.addLayout(input_layout)
+        
+        # 키 사용 안내 라벨 추가
+        help_label = QtWidgets.QLabel("Shift+Enter: 줄바꿈 / Enter: 메시지 전송")
+        help_label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(help_label)
         
         self.parent.setLayout(layout)
     
     def OnStopClicked(self):
-        self.chat_history.append(f"<b>System Message:</b> Conversation stopped by user.")
+        formatted_message = "Conversation stopped by user.".replace("\n", "<br>")
+        self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
         self.assistant.message_history.append({"role": "user", "content": "Stop analysis"})
         self.assistant.message_history.append({"role": "assistant", "content": "Analysis stopped by user."})
         self.stop_flag = True
 
     def OnSendClicked(self):
         self.stop_flag = False
-        user_message = self.user_input.text().strip()
+        user_message = self.user_input.toPlainText().strip()
         if user_message:
-            self.chat_history.append(f"<b>User:</b> {user_message}")
+            # HTML 형식으로 개행을 <br> 태그로 변환
+            formatted_message = user_message.replace("\n", "<br>")
+            self.chat_history.append(f"<b>User:</b> {formatted_message}")
             self.user_input.clear()
             
             current_address = idc.here()
@@ -295,14 +335,18 @@ class AssistantWidget(ida_kernwin.PluginForm):
             assistant_reply = self.ParseResponse(response)
 
             if assistant_reply is None:
-                self.chat_history.append(f"<b>System Message:</b> Failed to parse assistant response.")
+                formatted_message = "Failed to parse Bob response.".replace("\n", "<br>")
+                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
                 return
 
             if not assistant_reply:
-                self.chat_history.append(f"<b>System Message:</b> No response from assistant.")
+                formatted_message = "No response from Bob.".replace("\n", "<br>")
+                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
                 return
 
-            self.chat_history.append(f"<b>Assistant speak:</b> {assistant_reply['thoughts']['speak']}")
+            # HTML 형식으로 개행을 <br> 태그로 변환
+            formatted_speak = assistant_reply['thoughts']['speak'].replace("\n", "<br>")
+            self.chat_history.append(f"<b>Bob speak:</b> {formatted_speak}")
 
             commands = assistant_reply['command']
             command_results = {}
@@ -334,7 +378,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
         except Exception as e:
             traceback_details = traceback.format_exc()
             print(traceback_details)
-            self.PrintOutput(f"Error parsing assistant response: {str(e)}")
+            self.PrintOutput(f"Error parsing Bob response: {str(e)}")
             self.assistant.query_model_async("user", f"Error parsing response. please retry:\n {str(e)}", self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
 
     def handle_eval_idc(self, args):
@@ -419,6 +463,9 @@ class AssistantWidget(ida_kernwin.PluginForm):
             if new_name and old_name:
                 ida_hexrays.rename_lvar(address, old_name, new_name)
                 result = f"Renamed address {hex(address)} from '{old_name}' to '{new_name}'"
+                # HTML 형식으로 개행을 <br> 태그로 변환
+                formatted_result = result.replace("\n", "<br>")
+                self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
                 self.PrintOutput(result)
                 return result
             return None
