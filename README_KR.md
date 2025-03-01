@@ -1,0 +1,70 @@
+# IDA Assistant
+
+IDA Assistant는 Anthropic의 Claude-3-7 모델을 활용하여 IDA Pro에서 리버스 엔지니어링 및 바이너리 분석 작업을 지원하는 플러그인입니다. 이 프로젝트는 [stuxnet147/IDA-Assistant](https://github.com/stuxnet147/IDA-Assistant)의 fork로, 최신 Claude-3-7-sonnet 모델과 다양한 성능 개선 사항을 포함하고 있습니다.
+
+[English README](README.md)
+
+## 주요 기능
+
+- **Claude-3-7-sonnet 모델 지원**: 최신 Claude-3-7-sonnet 모델을 사용하여 더 정확하고 유용한 분석 결과 제공
+- **토큰 관리 시스템**: 
+  - 자동 토큰 수 계산 및 메시지 길이 관리
+  - 프롬프트 길이 초과 시 오래된 메시지 자동 제거
+- **대화 중단 기능**: 분석 중 언제든지 대화를 중단할 수 있는 UI 제공
+- **향상된 함수명 검색**: fuzzywuzzy 라이브러리를 활용한 유사도 기반 함수명 검색 및 추천
+- **강화된 오류 처리**: 
+  - API 속도 제한 오류 발생 시 자동 재시도 메커니즘
+  - 다양한 예외 상황에 대한 개선된 오류 처리
+- **IDA Pro와의 통합**: 
+  - 디스어셈블리 검색
+  - 함수 디컴파일
+  - 주소 이름 변경
+  - 함수 시작/종료 주소 검색
+  - 이름으로 주소 검색
+  - 크로스 레퍼런스 분석 (xrefs)
+  - 주소에 주석 추가
+
+## 설치 방법
+
+### 저장소 복제:
+```sh
+git clone https://github.com/MeroZemory/IDA-Assistant.git
+```
+
+### 의존성 설치:
+```sh
+pip install anthropic fuzzywuzzy
+```
+
+### 설정:
+1. `IDA_Assistant.py` 파일을 열고 `api_key="YOUR API KEY"` 부분을 실제 Anthropic(Claude) API 키로 변경하세요.
+2. `IDA_Assistant.py` 파일을 IDA Pro 플러그인 디렉토리에 복사하세요.
+3. IDA Pro를 실행하고 "Edit" 메뉴에서 "IDA Assistant" 플러그인을 활성화하세요.
+
+## 사용 방법
+
+1. Alt+F1 단축키를 누르거나 "Edit" > "Plugins" > "IDA Assistant"를 선택하여 어시스턴트 창을 엽니다.
+2. 입력 필드에 질문이나 요청을 입력하고 "Send" 버튼을 클릭하거나 Enter 키를 누릅니다.
+3. AI 어시스턴트가 질문을 분석하고, 관련 명령을 실행한 후 유용한 제안과 정보를 제공합니다.
+4. 대화 중 분석을 중단하려면 "Stop" 버튼을 클릭하세요.
+5. 채팅 기록에서 어시스턴트의 응답을 검토하고 제공된 지침에 따라 리버스 엔지니어링 과정을 진행하세요.
+6. 필요에 따라 어시스턴트와의 대화를 계속하며 질문을 구체화하고 바이너리 분석의 다양한 측면을 탐색하세요.
+
+## 최근 업데이트
+
+- Claude-3-7-sonnet-latest 모델로 업데이트하여 분석 성능 향상
+- 토큰 수 계산 및 자동 메시지 길이 관리 기능 추가
+- 대화 중단 기능 구현 (Stop 버튼)
+- fuzzywuzzy 라이브러리를 활용한 함수명 검색 기능 개선
+- 재시도 메커니즘 및 오류 처리 로직 강화
+- 시스템 프롬프트 구조 개선 및 응답 품질 향상
+
+## 감사의 말
+
+- 이 플러그인에 사용된 시스템 프롬프트는 AutoGPT 프로젝트에서 영감을 받았습니다.
+- 쿼리 함수는 Gepetto IDA Pro 플러그인에서 적용되었습니다.
+- 원본 프로젝트: [stuxnet147/IDA-Assistant](https://github.com/stuxnet147/IDA-Assistant)
+
+## 라이선스
+
+이 프로젝트는 MIT 라이선스 하에 배포됩니다.

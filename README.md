@@ -1,41 +1,70 @@
-# IDA Assistant (WIP)
-IDA Assistant is an IDA Pro plugin that leverages the power of Anthropic's Claude-3 models to assist users in reverse engineering and binary analysis tasks. The plugin integrates with IDA Pro and provides an interactive chat interface where users can ask questions, seek guidance, and receive intelligent suggestions to support their reverse engineering workflow.
+# IDA Assistant
 
-## Features
-- AI-powered assistance for reverse engineering tasks in IDA Pro
-- Interactive chat interface for seamless communication with the AI assistant
-### Support for various reverse engineering commands and queries, including:
-- Disassembly retrieval
-- Function decompilation
-- Address renaming
-- Function start and end address retrieval
-- Address lookup by name
-- Cross-reference analysis (xrefs to and from addresses)
-- Adding comments to addresses
+IDA Assistant is an IDA Pro plugin that leverages Anthropic's Claude-3-7 model to assist users in reverse engineering and binary analysis tasks. This project is a fork of [stuxnet147/IDA-Assistant](https://github.com/stuxnet147/IDA-Assistant), enhanced with the latest Claude-3-7-sonnet model and various performance improvements.
+
+[한국어 README](README_KR.md)
+
+## Key Features
+
+- **Claude-3-7-sonnet Model Support**: Utilizes the latest Claude-3-7-sonnet model for more accurate and useful analysis results
+- **Token Management System**: 
+  - Automatic token counting and message length management
+  - Automatic removal of older messages when prompt length exceeds limits
+- **Conversation Interruption**: UI for stopping analysis at any time during the conversation
+- **Enhanced Function Name Search**: Similarity-based function name matching and suggestions using the fuzzywuzzy library
+- **Strengthened Error Handling**: 
+  - Automatic retry mechanism for API rate limit errors
+  - Improved error handling for various exception scenarios
+- **IDA Pro Integration**: 
+  - Disassembly retrieval
+  - Function decompilation
+  - Address renaming
+  - Function start/end address retrieval
+  - Address lookup by name
+  - Cross-reference analysis (xrefs)
+  - Adding comments to addresses
 
 ## Installation
+
 ### Clone the repository:
 ```sh
-git clone https://github.com/stuxnet147/IDA-Assistant.git
-```
-### Install the dependencies:
-```sh
-pip install anthropic
+git clone https://github.com/MeroZemory/IDA-Assistant.git
 ```
 
-- Open the ida_assistant.py file and replace <YOUR API KEY> with your actual Anthropic(Claude) API key.
-- Copy the ida_assistant.py file to your IDA Pro plugins directory.
-- Launch IDA Pro and enable the "IDA Assistant" plugin from the "Edit" menu.
+### Install dependencies:
+```sh
+pip install anthropic fuzzywuzzy
+```
+
+### Configuration:
+1. Open the `IDA_Assistant.py` file and replace `api_key="YOUR API KEY"` with your actual Anthropic(Claude) API key.
+2. Copy the `IDA_Assistant.py` file to your IDA Pro plugins directory.
+3. Launch IDA Pro and enable the "IDA Assistant" plugin from the "Edit" menu.
+
 ## Usage
-- Press Alt+F1 or go to "Edit" > "Plugins" > "IDA Assistant" to open the assistant window.
-- Type your query or request in the input field and click "Send" or press Enter.
-- The AI assistant will analyze your query, execute relevant commands, and provide helpful suggestions and information.
-- Review the assistant's response in the chat history and follow the provided guidance to aid your reverse engineering process.
-- Continue the conversation with the assistant as needed, refining your queries and exploring different aspects of the binary analysis.
+
+1. Press Alt+F1 or go to "Edit" > "Plugins" > "IDA Assistant" to open the assistant window.
+2. Type your query or request in the input field and click "Send" or press Enter.
+3. The AI assistant will analyze your query, execute relevant commands, and provide helpful suggestions and information.
+4. To stop the analysis during conversation, click the "Stop" button.
+5. Review the assistant's response in the chat history and follow the provided guidance to aid your reverse engineering process.
+6. Continue the conversation with the assistant as needed, refining your queries and exploring different aspects of binary analysis.
+
+## Recent Updates
+
+- Updated to Claude-3-7-sonnet-latest model for improved analysis performance
+- Added token counting and automatic message length management
+- Implemented conversation interruption feature (Stop button)
+- Enhanced function name search using the fuzzywuzzy library
+- Strengthened retry mechanism and error handling logic
+- Improved system prompt structure and response quality
 
 ## Acknowledgments
+
 - The system prompt used in this plugin was inspired by the AutoGPT project.
 - The query functions were adapted from the Gepetto IDA Pro plugin.
+- Original project: [stuxnet147/IDA-Assistant](https://github.com/stuxnet147/IDA-Assistant)
 
 ## License
+
 This project is licensed under the MIT License.
