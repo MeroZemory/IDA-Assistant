@@ -11,6 +11,10 @@ IDA Assistant is an IDA Pro plugin that leverages Anthropic's Claude-3-7 model t
   - Enhanced prompt structure with clear sections and better organization
   - Optimized command usage instructions to prevent common errors
   - Improved response format guidelines for better AI outputs
+- **Secure API Key Management**:
+  - One-time API key input with encrypted storage
+  - Machine-specific encryption for additional security
+  - API key is only decrypted in memory when the plugin is active
 - **Token Management System**: 
   - Automatic token counting and message length management
   - Automatic removal of older messages when prompt length exceeds limits
@@ -41,22 +45,25 @@ pip install anthropic fuzzywuzzy
 ```
 
 ### Configuration:
-1. Open the `IDA_Assistant.py` file and replace `api_key="YOUR API KEY"` with your actual Anthropic(Claude) API key.
-2. Copy the `IDA_Assistant.py` file to your IDA Pro plugins directory.
-3. Launch IDA Pro and enable the "IDA Assistant" plugin from the "Edit" menu.
+1. Copy the `IDA_Assistant.py` file to your IDA Pro plugins directory.
+2. Launch IDA Pro and enable the "IDA Assistant" plugin from the "Edit" menu.
+3. When prompted, enter your Anthropic API key. The key will be encrypted and securely stored for future use.
 
 ## Usage
 
 1. Press Alt+F1 or go to "Edit" > "Plugins" > "IDA Assistant" to open the assistant window.
-2. Type your query or request in the input field and click "Send" or press Enter.
-3. The AI assistant will analyze your query, execute relevant commands, and provide helpful suggestions and information.
-4. To stop the analysis during conversation, click the "Stop" button.
-5. Review the assistant's response in the chat history and follow the provided guidance to aid your reverse engineering process.
-6. Continue the conversation with the assistant as needed, refining your queries and exploring different aspects of binary analysis.
+2. If this is your first time using the plugin, you'll be prompted to enter your Anthropic API key.
+3. Type your query or request in the input field and click "Send" or press Enter.
+4. The AI assistant will analyze your query, execute relevant commands, and provide helpful suggestions and information.
+5. To stop the analysis during conversation, click the "Stop" button.
+6. To update your API key at any time, click the "Set API Key" button in the assistant window.
+7. Review the assistant's response in the chat history and follow the provided guidance to aid your reverse engineering process.
+8. Continue the conversation with the assistant as needed, refining your queries and exploring different aspects of binary analysis.
 
 ## Recent Updates
 
 - **March 2025**: 
+  - Added secure API key management with encryption
   - Restructured system prompt for better organization and clarity
   - Improved command documentation and usage instructions
   - Enhanced response format guidelines for more useful AI outputs

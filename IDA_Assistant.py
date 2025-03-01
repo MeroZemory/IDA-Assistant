@@ -14,6 +14,146 @@ import traceback
 import functools
 import fuzzywuzzy
 from PyQt5 import QtWidgets, QtCore
+import os
+import base64
+import hashlib
+import secrets
+
+class ApiKeyManager:
+    def __init__(self):
+        # IDA 설치 디렉토리 내 config 폴더에 파일 저장
+        self.config_dir = os.path.join(idaapi.get_user_idadir(), "plugins")
+        if not os.path.exists(self.config_dir):
+            os.makedirs(self.config_dir)
+        
+        self.api_key_file = os.path.join(self.config_dir, "ida_assistant_api.enc")
+        self.salt_file = os.path.join(self.config_dir, "ida_assistant_salt.bin")
+    
+    def _get_machine_specific_key(self):
+        """기기 특정 고유 식별자를 기반으로 키 생성"""
+        # IDA 설치 경로와 사용자 이름을 조합하여 고유한 값 생성
+        machine_info = idaapi.get_user_idadir() + os.getenv('USERNAME', 'user')
+        # SHA-256 해시 생성
+        return hashlib.sha256(machine_info.encode()).digest()
+    
+    def _encrypt(self, data, salt):
+        """간단한 XOR 기반 암호화"""
+        key = self._get_machine_specific_key()
+        # 키 확장 (PBKDF2와 유사한 간단한 방식)
+        derived_key = b''
+        for i in range(32):  # 256비트 키 생성
+            derived_key += hashlib.sha256(key + salt + bytes([i])).digest()
+        derived_key = derived_key[:len(data)]
+        
+        # XOR 암호화
+        encrypted = bytearray(len(data))
+        for i in range(len(data)):
+            encrypted[i] = data[i] ^ derived_key[i % len(derived_key)]
+            
+        return bytes(encrypted)
+    
+    def _decrypt(self, encrypted_data, salt):
+        """XOR 암호화는 대칭이므로 같은 함수 사용"""
+        return self._encrypt(encrypted_data, salt)  # XOR 암호화는 적용을 두 번 하면 원래 값으로 돌아옴
+    
+    def save_api_key(self, api_key):
+        """API 키 암호화 및 저장"""
+        # 랜덤 salt 생성
+        salt = secrets.token_bytes(16)
+        
+        # API 키 암호화
+        encrypted_api_key = self._encrypt(api_key.encode(), salt)
+        
+        # 암호화된 키와 salt 저장
+        with open(self.api_key_file, 'wb') as f:
+            f.write(base64.b64encode(encrypted_api_key))
+        
+        with open(self.salt_file, 'wb') as f:
+            f.write(base64.b64encode(salt))
+        
+        return True
+    
+    def load_api_key(self):
+        """저장된 API 키 로드 및 복호화"""
+        if not os.path.exists(self.api_key_file) or not os.path.exists(self.salt_file):
+            return None
+        
+        try:
+            # salt 로드
+            with open(self.salt_file, 'rb') as f:
+                salt = base64.b64decode(f.read())
+            
+            # 암호화된 API 키 로드 및 복호화
+            with open(self.api_key_file, 'rb') as f:
+                encrypted_api_key = base64.b64decode(f.read())
+            
+            decrypted_api_key = self._decrypt(encrypted_api_key, salt).decode()
+            
+            return decrypted_api_key
+        except Exception as e:
+            print(f"API 키 로드 중 오류 발생: {e}")
+            return None
+    
+    def has_saved_api_key(self):
+        """저장된 API 키가 있는지 확인"""
+        return os.path.exists(self.api_key_file) and os.path.exists(self.salt_file)
+
+class ApiKeyDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None, current_key=None):
+        super(ApiKeyDialog, self).__init__(parent)
+        self.setWindowTitle("Anthropic API Key Setup")
+        self.resize(450, 150)
+        
+        layout = QtWidgets.QVBoxLayout(self)
+        
+        # 설명 라벨
+        info_label = QtWidgets.QLabel(
+            "Enter your Anthropic API key. The key will be encrypted and stored securely."
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # API 키 입력 필드
+        key_layout = QtWidgets.QHBoxLayout()
+        self.key_input = QtWidgets.QLineEdit()
+        self.key_input.setEchoMode(QtWidgets.QLineEdit.Password)
+        if current_key:
+            self.key_input.setText(current_key)
+        key_layout.addWidget(QtWidgets.QLabel("API Key:"))
+        key_layout.addWidget(self.key_input)
+        
+        # 보기/숨기기 버튼
+        self.toggle_view_btn = QtWidgets.QPushButton("Show")
+        self.toggle_view_btn.setCheckable(True)
+        self.toggle_view_btn.clicked.connect(self.toggle_key_visibility)
+        key_layout.addWidget(self.toggle_view_btn)
+        
+        layout.addLayout(key_layout)
+        
+        # 버튼 레이아웃
+        button_layout = QtWidgets.QHBoxLayout()
+        self.save_button = QtWidgets.QPushButton("Save")
+        self.cancel_button = QtWidgets.QPushButton("Cancel")
+        
+        self.save_button.clicked.connect(self.accept)
+        self.cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addWidget(self.save_button)
+        button_layout.addWidget(self.cancel_button)
+        layout.addLayout(button_layout)
+        
+        self.setLayout(layout)
+    
+    def toggle_key_visibility(self):
+        if self.toggle_view_btn.isChecked():
+            self.key_input.setEchoMode(QtWidgets.QLineEdit.Normal)
+            self.toggle_view_btn.setText("Hide")
+        else:
+            self.key_input.setEchoMode(QtWidgets.QLineEdit.Password)
+            self.toggle_view_btn.setText("Show")
+    
+    def get_api_key(self):
+        return self.key_input.text().strip()
 
 class IDAAssistant(ida_idaapi.plugin_t):
     flags = ida_idaapi.PLUGIN_FIX
@@ -25,11 +165,15 @@ class IDAAssistant(ida_idaapi.plugin_t):
     def __init__(self):
         super(IDAAssistant, self).__init__()
         self.model = "claude-3-7-sonnet-latest"
-        self.client = anthropic.Anthropic(
-            api_key="YOUR API KEY"
-        )
+        self.api_key_manager = ApiKeyManager()
+        self.api_key = self.api_key_manager.load_api_key()
+        self.client = None
         self.chat_history = []
         self.message_history = []
+        
+        # API 키가 없으면 None으로 초기화, 실제 사용 시 확인 후 요청
+        if self.api_key:
+            self.initialize_client()
         
         system_prompt = """
         # IDA-Assistant Core Purpose
@@ -160,10 +304,38 @@ class IDAAssistant(ida_idaapi.plugin_t):
             }
         ]
         
+    def initialize_client(self):
+        """API 키로 Anthropic 클라이언트 초기화"""
+        if self.api_key:
+            self.client = anthropic.Anthropic(api_key=self.api_key)
+            return True
+        return False
+    
+    def ensure_api_key(self):
+        """API 키가 설정되어 있는지 확인하고, 없으면 입력 요청"""
+        if self.api_key and self.client:
+            return True
+        
+        # API 키 입력 대화상자 표시
+        dialog = ApiKeyDialog(None, self.api_key)
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            self.api_key = dialog.get_api_key()
+            if self.api_key:
+                # API 키 저장 및 클라이언트 초기화
+                self.api_key_manager.save_api_key(self.api_key)
+                return self.initialize_client()
+        
+        return False
+
     def init(self):
         return ida_idaapi.PLUGIN_OK
 
     def run(self, arg):
+        # 실행 시 API 키 확인
+        if not self.ensure_api_key():
+            print("API key is required to use IDA Assistant.")
+            return
+            
         self.assistant_window = AssistantWidget()
         self.assistant_window.Show("IDA Assistant")
 
@@ -176,6 +348,12 @@ class IDAAssistant(ida_idaapi.plugin_t):
         self.chat_history.append(f"<b>Bob:</b> {formatted_message}") 
         
     def query_model(self, role, query, cb, additional_model_options=None):
+        # API 키 확인
+        if not self.ensure_api_key():
+            formatted_message = "API key not provided. Please configure your API key to use IDA Assistant.".replace("\n", "<br>")
+            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+            return
+            
         if additional_model_options is None:
             additional_model_options = {}
             
@@ -230,6 +408,11 @@ class IDAAssistant(ida_idaapi.plugin_t):
                 else:
                     print("BadRequestError not related to prompt length.")
                     raise
+            except Exception as e:
+                print(f"Error calling Anthropic API: {e}")
+                formatted_message = f"Error: {str(e)}".replace("\n", "<br>")
+                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+                return
 
         assistant_reply = ""
         for block in response.content:
@@ -279,6 +462,12 @@ class AssistantWidget(ida_kernwin.PluginForm):
         self.parent = self.FormToPyQtWidget(form)
         self.PopulateForm()
         self.assistant = IDAAssistant()
+        
+        # API 키 확인
+        if not self.assistant.ensure_api_key():
+            formatted_message = "API key not configured. Please configure your API key to use IDA Assistant.".replace("\n", "<br>")
+            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+        
         self.command_results = []
         self.functions = self.get_name_info()
         self.stop_flag = False
@@ -317,6 +506,11 @@ class AssistantWidget(ida_kernwin.PluginForm):
         stop_button.clicked.connect(self.OnStopClicked)
         button_layout.addWidget(stop_button)
         
+        # API 키 설정 버튼 추가
+        api_key_button = QtWidgets.QPushButton("Set API Key")
+        api_key_button.clicked.connect(self.OnSetApiKeyClicked)
+        button_layout.addWidget(api_key_button)
+        
         input_layout.addLayout(button_layout)
         
         layout.addLayout(input_layout)
@@ -328,6 +522,12 @@ class AssistantWidget(ida_kernwin.PluginForm):
         
         self.parent.setLayout(layout)
     
+    def OnSetApiKeyClicked(self):
+        """API 키 설정 버튼 클릭 시 호출되는 함수"""
+        if self.assistant.ensure_api_key():
+            formatted_message = "API key has been configured successfully.".replace("\n", "<br>")
+            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+        
     def OnStopClicked(self):
         formatted_message = "Conversation stopped by user.".replace("\n", "<br>")
         self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
