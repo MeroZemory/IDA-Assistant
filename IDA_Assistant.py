@@ -529,14 +529,31 @@ class AssistantWidget(ida_kernwin.PluginForm):
             self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
         
     def OnStopClicked(self):
+        # 이미 멈춘 상태인 경우 중복 실행 방지
+        if self.stop_flag:
+            return
+            
         formatted_message = "Conversation stopped by user.".replace("\n", "<br>")
         self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
         self.assistant.message_history.append({"role": "user", "content": "Stop analysis"})
         self.assistant.message_history.append({"role": "assistant", "content": "Analysis stopped by user."})
         self.stop_flag = True
+        
+        # Stop 버튼 비활성화
+        for button in self.parent.findChildren(QtWidgets.QPushButton):
+            if button.text() == "Stop":
+                button.setEnabled(False)
+                break
 
     def OnSendClicked(self):
         self.stop_flag = False
+        
+        # Stop 버튼 활성화
+        for button in self.parent.findChildren(QtWidgets.QPushButton):
+            if button.text() == "Stop":
+                button.setEnabled(True)
+                break
+                
         user_message = self.user_input.toPlainText().strip()
         if user_message:
             # HTML 형식으로 개행을 <br> 태그로 변환
