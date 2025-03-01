@@ -7,6 +7,10 @@ IDA Assistant is an IDA Pro plugin that leverages Anthropic's Claude-3-7 model t
 ## Key Features
 
 - **Claude-3-7-sonnet Model Support**: Utilizes the latest Claude-3-7-sonnet model for more accurate and useful analysis results
+- **Improved System Prompt**: 
+  - Enhanced prompt structure with clear sections and better organization
+  - Optimized command usage instructions to prevent common errors
+  - Improved response format guidelines for better AI outputs
 - **Token Management System**: 
   - Automatic token counting and message length management
   - Automatic removal of older messages when prompt length exceeds limits
@@ -52,12 +56,15 @@ pip install anthropic fuzzywuzzy
 
 ## Recent Updates
 
+- **March 2025**: 
+  - Restructured system prompt for better organization and clarity
+  - Improved command documentation and usage instructions
+  - Enhanced response format guidelines for more useful AI outputs
 - Updated to Claude-3-7-sonnet-latest model for improved analysis performance
 - Added token counting and automatic message length management
 - Implemented conversation interruption feature (Stop button)
 - Enhanced function name search using the fuzzywuzzy library
 - Strengthened retry mechanism and error handling logic
-- Improved system prompt structure and response quality
 
 ## Acknowledgments
 
