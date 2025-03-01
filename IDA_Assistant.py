@@ -236,8 +236,12 @@ class IDAAssistant(ida_idaapi.plugin_t):
           - Description: Get the details of all cross-references to the specified function.
           - Args: "address": String
         
-        - Name: do_nothing
-          - Description: Do nothing. Use it when a series of tasks are completed.
+        - Name: complete_analysis
+          - Description: Explicitly end the conversation when analysis is successfully completed. Use this command to signal that you have finished your analysis with successful results.
+          - Args: None (include as {"args": {}})
+        
+        - Name: abort_analysis
+          - Description: End the conversation when analysis cannot be completed or further progress is impossible. Use this command when you've reached a dead end, encountered insurmountable obstacles, or determined that the requested task cannot be accomplished.
           - Args: None (include as {"args": {}})
         
         - Name: set_address_comment
@@ -591,10 +595,46 @@ class AssistantWidget(ida_kernwin.PluginForm):
 
             commands = assistant_reply['command']
             command_results = {}
+            
+            # AI가 대화를 중단하는지 확인
+            ai_stops_conversation = False
+            analysis_completed_successfully = False
+            
+            # 대화 종료 명령 확인 - 성공 또는 실패로 인한 종료
+            for command in commands:
+                if command['name'] == "complete_analysis":
+                    ai_stops_conversation = True
+                    analysis_completed_successfully = True
+                    break
+                elif command['name'] == "abort_analysis":
+                    ai_stops_conversation = True
+                    analysis_completed_successfully = False
+                    break
+                elif command['name'] == "end_conversation":  # 이전 버전과의 호환성 유지
+                    ai_stops_conversation = True
+                    analysis_completed_successfully = True
+                    break
+            
+            # AI가 대화를 중단하는 경우 처리
+            if ai_stops_conversation:
+                if analysis_completed_successfully:
+                    formatted_message = "Analysis completed successfully by AI.".replace("\n", "<br>")
+                else:
+                    formatted_message = "Analysis aborted: AI could not complete the requested task.".replace("\n", "<br>")
+                
+                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+                self.stop_flag = True
+                
+                # Stop 버튼 비활성화
+                for button in self.parent.findChildren(QtWidgets.QPushButton):
+                    if button.text() == "Stop":
+                        button.setEnabled(False)
+                        break
+                return
 
             for command in commands:
                 command_name = command['name']
-                if command_name == "do_nothing":
+                if command_name in ["complete_analysis", "abort_analysis", "end_conversation"]:
                     continue
 
                 command_args = command['args']
