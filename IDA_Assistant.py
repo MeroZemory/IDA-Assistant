@@ -1007,8 +1007,12 @@ class AssistantWidget(ida_kernwin.PluginForm):
         # 전송 버튼 상태 업데이트
         if self.pending_message is not None:
             self.send_button.setText("Cancel")
+            # 전송 대기 중일 때 입력 박스 비활성화
+            self.user_input.setEnabled(False)
         else:
             self.send_button.setText("Send")
+            # 전송 대기 중이 아닐 때 입력 박스 활성화
+            self.user_input.setEnabled(True)
             
         # 중단 버튼 상태 업데이트
         if self.conversation_active:
