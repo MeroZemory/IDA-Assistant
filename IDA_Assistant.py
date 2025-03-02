@@ -379,15 +379,13 @@ class IDAAssistant(ida_idaapi.plugin_t):
         pass
 
     def add_assistant_message(self, message):
-        # HTML 형식으로 개행을 <br> 태그로 변환
-        formatted_message = message.replace("\n", "<br>")
-        self.chat_history.append(f"<b>Bob:</b> {formatted_message}") 
+        # 일반 텍스트 형식으로 변경
+        self.chat_history.append(f"Bob: {message}")
         
     def query_model(self, role, query, cb, additional_model_options=None):
         # API 키 확인
         if not self.ensure_api_key():
-            formatted_message = "API key not provided. Please configure your API key to use IDA Assistant.".replace("\n", "<br>")
-            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+            self.chat_history.append("System Message: API key not provided. Please configure your API key to use IDA Assistant.")
             return
             
         if additional_model_options is None:
@@ -446,8 +444,7 @@ class IDAAssistant(ida_idaapi.plugin_t):
                     raise
             except Exception as e:
                 print(f"Error calling Anthropic API: {e}")
-                formatted_message = f"Error: {str(e)}".replace("\n", "<br>")
-                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+                self.chat_history.append(f"System Message: Error: {str(e)}")
                 return
 
         assistant_reply = ""
@@ -458,9 +455,8 @@ class IDAAssistant(ida_idaapi.plugin_t):
         print(assistant_reply)
                 
         self.message_history.append({"role": "assistant", "content": assistant_reply})
-        # HTML 형식으로 개행을 <br> 태그로 변환
-        formatted_query = query.replace("\n", "<br>")
-        self.chat_history.append(f"<b>User:</b> {formatted_query}")
+        # 일반 텍스트로 변경
+        self.chat_history.append(f"User: {query}")
         ida_kernwin.execute_sync(functools.partial(cb, response=assistant_reply), ida_kernwin.MFF_WRITE)
 
 
@@ -509,8 +505,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
         
         # API 키 확인
         if not self.assistant.ensure_api_key():
-            formatted_message = "API key not configured. Please configure your API key to use IDA Assistant.".replace("\n", "<br>")
-            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+            self.chat_history.appendPlainText("System Message: API key not configured. Please configure your API key to use IDA Assistant.")
         
         self.command_results = []
         self.functions = self.get_name_info()
@@ -521,7 +516,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
         self.view = ida_kernwin.get_current_viewer()
         self.output_window = ida_kernwin.find_widget("Output window")
         
-        self.chat_history = QtWidgets.QTextEdit()
+        # QTextEdit 대신 QPlainTextEdit 사용
+        self.chat_history = QtWidgets.QPlainTextEdit()
         self.chat_history.setReadOnly(True)
         layout.addWidget(self.chat_history)
         
@@ -626,8 +622,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
                 )
                 
                 # 채팅 히스토리에 메시지 추가
-                formatted_message = "API key has been deleted. Please configure a new API key to use IDA Assistant.".replace("\n", "<br>")
-                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+                self.chat_history.appendPlainText("System Message: API key has been deleted. Please configure a new API key to use IDA Assistant.")
             else:
                 # 메시지 박스로 삭제 실패 메시지 표시
                 QtWidgets.QMessageBox.warning(
@@ -680,18 +675,15 @@ class AssistantWidget(ida_kernwin.PluginForm):
             assistant_reply = self.ParseResponse(response)
 
             if assistant_reply is None:
-                formatted_message = "Failed to parse response."
-                self.end_conversation_loop(formatted_message)
+                self.end_conversation_loop("Failed to parse response.")
                 return
 
             if not assistant_reply:
-                formatted_message = "No response received."
-                self.end_conversation_loop(formatted_message)
+                self.end_conversation_loop("No response received.")
                 return
 
-            # HTML 형식으로 개행을 <br> 태그로 변환
-            formatted_speak = assistant_reply['thoughts']['speak'].replace("\n", "<br>")
-            self.chat_history.append(f"<b>Bob speak:</b> {formatted_speak}")
+            # 일반 텍스트로 변경
+            self.chat_history.appendPlainText(f"Bob speak: {assistant_reply['thoughts']['speak']}")
 
             commands = assistant_reply['command']
             command_results = {}
@@ -854,9 +846,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
             if new_name and old_name:
                 idaapi.set_name(address, new_name, ida_name.SN_NOWARN)
                 result = f"Renamed address {hex(address)} from '{old_name}' to '{new_name}'"
-                # HTML 형식으로 개행을 <br> 태그로 변환
-                formatted_result = result.replace("\n", "<br>")
-                self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+                # 일반 텍스트로 변경
+                self.chat_history.appendPlainText(f"System Message: {result}")
                 self.PrintOutput(result)
                 return None
             return None
@@ -1011,9 +1002,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
             idc.set_cmt(address, combined_comment, 1)
             
             result = f"Set comment at {hex(address)}: {combined_comment}"
-            # HTML 형식으로 개행을 <br> 태그로 변환
-            formatted_result = result.replace("\n", "<br>")
-            self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+            # 일반 텍스트로 변경
+            self.chat_history.appendPlainText(f"System Message: {result}")
             self.PrintOutput(result)
 
             return None
@@ -1039,9 +1029,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
                                     f"----------------------------------------\n\n"
                                     f"{comment.strip()}", 0)
                 result = f"Set comment at function {hex(address)}."
-                # HTML 형식으로 개행을 <br> 태그로 변환
-                formatted_result = result.replace("\n", "<br>")
-                self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+                # 일반 텍스트로 변경
+                self.chat_history.appendPlainText(f"System Message: {result}")
                 self.PrintOutput(result)
                 return None
             return f"No function found at address {hex(address)}"
@@ -1057,9 +1046,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
             if function:
                 if ida_hexrays.rename_lvar(function, old_name, new_name):
                     result = f"Renamed variable in function at {hex(address)} from '{old_name}' to '{new_name}'"
-                    # HTML 형식으로 개행을 <br> 태그로 변환
-                    formatted_result = result.replace("\n", "<br>")
-                    self.chat_history.append(f"<b>System Message:</b> {formatted_result}")
+                    # 일반 텍스트로 변경
+                    self.chat_history.appendPlainText(f"System Message: {result}")
                     self.PrintOutput(result)
                     return result
                 else:
@@ -1151,8 +1139,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
         
         # 메시지 처리
         self.stop_flag = False
-        formatted_message = message.replace("\n", "<br>")
-        self.chat_history.append(f"<b>User:</b> {formatted_message}")
+        # 일반 텍스트로 변경
+        self.chat_history.appendPlainText(f"User: {message}")
         
         # 메시지 전송
         self.assistant.query_model_async("user", message, self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
@@ -1178,8 +1166,8 @@ class AssistantWidget(ida_kernwin.PluginForm):
         self.stop_flag = False
         
         if message:
-            formatted_message = message.replace("\n", "<br>")
-            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+            # 일반 텍스트로 변경
+            self.chat_history.appendPlainText(f"System Message: {message}")
             
         self.update_button_states()
 
