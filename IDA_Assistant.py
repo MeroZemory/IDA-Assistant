@@ -464,7 +464,15 @@ class InputEventFilter(QtCore.QObject):
 class AssistantWidget(ida_kernwin.PluginForm):
     def OnCreate(self, form):
         self.parent = self.FormToPyQtWidget(form)
+        
+        # 대화 제어 변수 초기화 (PopulateForm 호출 전에 수행하여 update_button_states에 사용 가능하도록 함)
+        self.stop_flag = False            # 중지 예약 플래그
+        self.conversation_active = False  # 대화 상태 (활성/비활성)
+        self.pending_message = None       # 전송 대기 중인 메시지 (단일 메시지 큐)
+        self.processing_lock = False      # 처리 중복 방지 잠금
+        
         self.PopulateForm()
+        
         self.assistant = IDAAssistant()
         
         # API 키 확인
@@ -474,7 +482,6 @@ class AssistantWidget(ida_kernwin.PluginForm):
         
         self.command_results = []
         self.functions = self.get_name_info()
-        self.stop_flag = False
         
     def PopulateForm(self):
         layout = QtWidgets.QVBoxLayout()
@@ -501,14 +508,16 @@ class AssistantWidget(ida_kernwin.PluginForm):
         
         button_layout = QtWidgets.QVBoxLayout()
         
-        send_button = QtWidgets.QPushButton("Send")
-        send_button.clicked.connect(self.OnSendClicked)
-        button_layout.addWidget(send_button)
+        # 전송 버튼 (Send/Cancel)
+        self.send_button = QtWidgets.QPushButton("Send")
+        self.send_button.clicked.connect(self.OnSendClicked)
+        button_layout.addWidget(self.send_button)
         
-        # 중단 버튼
-        stop_button = QtWidgets.QPushButton("Stop")
-        stop_button.clicked.connect(self.OnStopClicked)
-        button_layout.addWidget(stop_button)
+        # 중단 버튼 (Stop/Continue)
+        self.stop_button = QtWidgets.QPushButton("Stop")
+        self.stop_button.clicked.connect(self.OnStopClicked)
+        self.stop_button.setEnabled(False)  # 초기에는 비활성화
+        button_layout.addWidget(self.stop_button)
         
         # API 키 설정 버튼 추가
         api_key_button = QtWidgets.QPushButton("Set API Key")
@@ -525,6 +534,9 @@ class AssistantWidget(ida_kernwin.PluginForm):
         layout.addWidget(help_label)
         
         self.parent.setLayout(layout)
+        
+        # 초기 버튼 상태 설정
+        self.update_button_states()
     
     def OnSetApiKeyClicked(self):
         """API 키 설정 버튼 클릭 시 호출되는 함수"""
@@ -533,60 +545,55 @@ class AssistantWidget(ida_kernwin.PluginForm):
             self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
         
     def OnStopClicked(self):
-        # 이미 멈춘 상태인 경우 중복 실행 방지
-        if self.stop_flag:
+        # 대화가 활성화된 상태에서만 작동
+        if not self.conversation_active:
             return
             
-        formatted_message = "Conversation stopped by user.".replace("\n", "<br>")
-        self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
-        self.assistant.message_history.append({"role": "user", "content": "Stop analysis"})
-        self.assistant.message_history.append({"role": "assistant", "content": "Analysis stopped by user."})
+        # 이미 중지 요청한 경우
+        if self.stop_flag:
+            self.PrintOutput("Stop request already in progress...")
+            return
+            
+        # 중지 플래그 설정 및 상태 업데이트
         self.stop_flag = True
+        self.update_button_states()
         
-        # Stop 버튼 비활성화
-        for button in self.parent.findChildren(QtWidgets.QPushButton):
-            if button.text() == "Stop":
-                button.setEnabled(False)
-                break
+        self.PrintOutput("Stopping conversation after current response...")
 
     def OnSendClicked(self):
-        self.stop_flag = False
-        
-        # Stop 버튼 활성화
-        for button in self.parent.findChildren(QtWidgets.QPushButton):
-            if button.text() == "Stop":
-                button.setEnabled(True)
-                break
-                
+        # 대기 메시지가 있을 경우 (Cancel 동작)
+        if self.pending_message is not None:
+            if self.clear_queue():
+                self.PrintOutput("Pending message canceled.")
+            return
+            
+        # 메시지 입력 확인
         user_message = self.user_input.toPlainText().strip()
-        if user_message:
-            # HTML 형식으로 개행을 <br> 태그로 변환
-            formatted_message = user_message.replace("\n", "<br>")
-            self.chat_history.append(f"<b>User:</b> {formatted_message}")
-            self.user_input.clear()
+        if not user_message:
+            return
             
-            current_address = idc.here()
-            
-            prompt = f"{user_message}\nCurrent address: {hex(current_address)}"
-            
-            self.assistant.query_model_async("user", prompt, self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
+        # 입력 필드 초기화
+        self.user_input.clear()
+        
+        # 메시지를 대기열에 추가
+        self.add_to_queue(user_message)
+        
+        # 대화가 활성화되지 않은 경우 처리 시작
+        if not self.conversation_active:
+            self.start_conversation_loop()
     
     def OnResponseReceived(self, response):
         try:
-            if self.stop_flag:
-                self.PrintOutput("Analysis stopped by user.")
-                return
-            
             assistant_reply = self.ParseResponse(response)
 
             if assistant_reply is None:
-                formatted_message = "Failed to parse Bob response.".replace("\n", "<br>")
-                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+                formatted_message = "Failed to parse response."
+                self.end_conversation_loop(formatted_message)
                 return
 
             if not assistant_reply:
-                formatted_message = "No response from Bob.".replace("\n", "<br>")
-                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+                formatted_message = "No response received."
+                self.end_conversation_loop(formatted_message)
                 return
 
             # HTML 형식으로 개행을 <br> 태그로 변환
@@ -614,20 +621,12 @@ class AssistantWidget(ida_kernwin.PluginForm):
             # AI가 대화를 중단하는 경우 처리
             if ai_stops_conversation:
                 if analysis_completed_successfully:
-                    formatted_message = "Analysis completed successfully by AI.".replace("\n", "<br>")
+                    self.end_conversation_loop("Analysis completed successfully by AI.")
                 else:
-                    formatted_message = "Analysis aborted: AI could not complete the requested task.".replace("\n", "<br>")
-                
-                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
-                self.stop_flag = True
-                
-                # Stop 버튼 비활성화
-                for button in self.parent.findChildren(QtWidgets.QPushButton):
-                    if button.text() == "Stop":
-                        button.setEnabled(False)
-                        break
+                    self.end_conversation_loop("Analysis aborted: AI could not complete the requested task.")
                 return
 
+            # 명령어 처리
             for command in commands:
                 command_name = command['name']
                 if command_name in ["complete_analysis", "abort_analysis"]:
@@ -642,6 +641,12 @@ class AssistantWidget(ida_kernwin.PluginForm):
                     self.PrintOutput(f"Unknown command: {command_name}")
                     command_results[command_name] = None
 
+            # Added check after processing commands to handle stop request after full response handling
+            if self.stop_flag:
+                self.end_conversation_loop("Conversation stopped by user after processing response.")
+                return
+
+            # 결과 처리 및 다음 메시지 요청
             query = ""
             for command_name, result in command_results.items():
                 if result is not None:
@@ -650,13 +655,27 @@ class AssistantWidget(ida_kernwin.PluginForm):
                     query += f"{command_name} result: None\n\n"
                     
             if len(query) > 0:
+                # 중지 요청이 있는 경우 다음 메시지 처리하지 않음
+                if self.stop_flag:
+                    self.end_conversation_loop("Conversation stopped by user during command processing.")
+                    return
+                    
                 self.assistant.query_model_async("user", f"{query}", self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
+            else:
+                # 명령어가 없거나 더 이상 처리할 작업이 없는 경우
+                self.processing_lock = False
+                
+                # 다음 메시지 처리, 큐가 비어있으면 대화 종료
+                if self.pending_message is not None:
+                    self.process_next_message()
+                else:
+                    self.end_conversation_loop()
 
         except Exception as e:
             traceback_details = traceback.format_exc()
             print(traceback_details)
-            self.PrintOutput(f"Error parsing Bob response: {str(e)}")
-            self.assistant.query_model_async("user", f"Error parsing response. please retry:\n {str(e)}", self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
+            self.PrintOutput(f"Error parsing response: {str(e)}")
+            self.end_conversation_loop(f"Error occurred: {str(e)}")
 
     def handle_eval_idc(self, args):
         try:
@@ -983,5 +1002,89 @@ class AssistantWidget(ida_kernwin.PluginForm):
         print(output_str)
         # self.chat_history.append(f"<b>System Message:</b> {output_str}")
         
+    def update_button_states(self):
+        """대화 상태에 따라 버튼 상태와 텍스트를 업데이트합니다"""
+        # 전송 버튼 상태 업데이트
+        if self.pending_message is not None:
+            self.send_button.setText("Cancel")
+        else:
+            self.send_button.setText("Send")
+            
+        # 중단 버튼 상태 업데이트
+        if self.conversation_active:
+            self.stop_button.setEnabled(True)
+            if self.stop_flag:
+                self.stop_button.setText("Stopping...")
+            else:
+                self.stop_button.setText("Stop")
+        else:
+            self.stop_button.setEnabled(False)
+            self.stop_button.setText("Stop")
+    
+    def add_to_queue(self, message):
+        """메시지를 대기열에 추가하고 버튼 상태를 업데이트합니다"""
+        self.pending_message = message
+        self.update_button_states()
+        
+    def clear_queue(self):
+        """대기 메시지를 취소하고 버튼 상태를 업데이트합니다"""
+        if self.pending_message is not None:
+            self.pending_message = None
+            self.update_button_states()
+            return True
+        return False
+    
+    def process_next_message(self):
+        """
+        대기 중인 메시지를 처리합니다.
+        """
+        if self.pending_message is None or self.processing_lock:
+            return
+            
+        # 처리 락 설정
+        self.processing_lock = True
+            
+        # 대기 메시지 가져오기
+        message = self.pending_message
+        self.pending_message = None
+        
+        # 대화 상태 업데이트
+        self.conversation_active = True
+        self.update_button_states()
+        
+        # 메시지 처리
+        self.stop_flag = False
+        formatted_message = message.replace("\n", "<br>")
+        self.chat_history.append(f"<b>User:</b> {formatted_message}")
+        
+        # 메시지 전송
+        self.assistant.query_model_async("user", message, self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
+
+    def start_conversation_loop(self):
+        """
+        대화 루프를 시작합니다. 이미 활성화된 경우 아무것도 하지 않습니다.
+        """
+        if self.conversation_active:
+            return
+            
+        self.conversation_active = True
+        self.update_button_states()
+        
+        # 대기 메시지가 있는 경우 처리 시작
+        if self.pending_message is not None and not self.processing_lock:
+            self.process_next_message()
+
+    def end_conversation_loop(self, message=None):
+        """대화 루프를 종료합니다"""
+        self.conversation_active = False
+        self.processing_lock = False
+        self.stop_flag = False
+        
+        if message:
+            formatted_message = message.replace("\n", "<br>")
+            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+            
+        self.update_button_states()
+
 def PLUGIN_ENTRY():
     return IDAAssistant()
