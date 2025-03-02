@@ -660,9 +660,6 @@ class AssistantWidget(ida_kernwin.PluginForm):
         if not user_message:
             return
             
-        # 입력 필드 초기화
-        self.user_input.clear()
-        
         # 메시지를 대기열에 추가
         self.add_to_queue(user_message)
         
@@ -1141,6 +1138,9 @@ class AssistantWidget(ida_kernwin.PluginForm):
         self.stop_flag = False
         # 일반 텍스트로 변경
         self.chat_history.appendPlainText(f"User: {message}")
+        
+        # 이 시점에서 입력 필드를 초기화 (이전 메시지가 처리되기 시작할 때)
+        self.user_input.clear()
         
         # 메시지 전송
         self.assistant.query_model_async("user", message, self.OnResponseReceived, additional_model_options={"max_tokens": 8000})
