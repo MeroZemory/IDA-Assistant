@@ -610,10 +610,6 @@ class AssistantWidget(ida_kernwin.PluginForm):
                     ai_stops_conversation = True
                     analysis_completed_successfully = False
                     break
-                elif command['name'] == "end_conversation":  # 이전 버전과의 호환성 유지
-                    ai_stops_conversation = True
-                    analysis_completed_successfully = True
-                    break
             
             # AI가 대화를 중단하는 경우 처리
             if ai_stops_conversation:
@@ -634,7 +630,7 @@ class AssistantWidget(ida_kernwin.PluginForm):
 
             for command in commands:
                 command_name = command['name']
-                if command_name in ["complete_analysis", "abort_analysis", "end_conversation"]:
+                if command_name in ["complete_analysis", "abort_analysis"]:
                     continue
 
                 command_args = command['args']

@@ -18,6 +18,10 @@ IDA Assistant is an IDA Pro plugin that leverages Anthropic's Claude-3-7 model t
 - **Token Management System**: 
   - Automatic token counting and message length management
   - Automatic removal of older messages when prompt length exceeds limits
+- **Enhanced User Interface**:
+  - Send/Cancel toggle button for better message control
+  - Input field disabling during processing to prevent message modification
+  - Clear visual feedback for message processing status
 - **Conversation Control**: 
   - UI for stopping analysis at any time during the conversation
   - Explicit conversation termination by AI using the end_conversation command
@@ -59,11 +63,13 @@ pip install anthropic fuzzywuzzy
 1. Press Alt+F1 or go to "Edit" > "Plugins" > "IDA Assistant" to open the assistant window.
 2. If this is your first time using the plugin, you'll be prompted to enter your Anthropic API key.
 3. Type your query or request in the input field and click "Send" or press Enter.
-4. The AI assistant will analyze your query, execute relevant commands, and provide helpful suggestions and information.
-5. To stop the analysis during conversation, click the "Stop" button.
-6. To update your API key at any time, click the "Set API Key" button in the assistant window.
-7. Review the assistant's response in the chat history and follow the provided guidance to aid your reverse engineering process.
-8. Continue the conversation with the assistant as needed, refining your queries and exploring different aspects of binary analysis.
+4. The input field will be disabled during processing, and the "Send" button will change to "Cancel".
+5. To cancel the current request, click the "Cancel" button.
+6. The AI assistant will analyze your query, execute relevant commands, and provide helpful suggestions and information.
+7. To stop the analysis during conversation, click the "Stop" button.
+8. To update your API key at any time, click the "Set API Key" button in the assistant window.
+9. Review the assistant's response in the chat history and follow the provided guidance to aid your reverse engineering process.
+10. Continue the conversation with the assistant as needed, refining your queries and exploring different aspects of binary analysis.
 
 ## Recent Updates
 
@@ -73,6 +79,8 @@ pip install anthropic fuzzywuzzy
   - Improved command documentation and usage instructions
   - Enhanced response format guidelines for more useful AI outputs
   - Implemented distinct conversation termination commands for success and failure scenarios
+  - Added Send/Cancel toggle functionality for better message control
+  - Implemented input field disabling during processing to prevent message modification
 - Updated to Claude-3-7-sonnet-latest model for improved analysis performance
 - Added token counting and automatic message length management
 - Implemented conversation interruption feature (Stop button)
