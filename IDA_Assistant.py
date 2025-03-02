@@ -97,6 +97,18 @@ class ApiKeyManager:
     def has_saved_api_key(self):
         """저장된 API 키가 있는지 확인"""
         return os.path.exists(self.api_key_file) and os.path.exists(self.salt_file)
+    
+    def delete_api_key(self):
+        """저장된 API 키 파일을 삭제합니다"""
+        try:
+            if os.path.exists(self.api_key_file):
+                os.remove(self.api_key_file)
+            if os.path.exists(self.salt_file):
+                os.remove(self.salt_file)
+            return True
+        except Exception as e:
+            print(f"API 키 삭제 중 오류 발생: {e}")
+            return False
 
 class ApiKeyDialog(QtWidgets.QDialog):
     def __init__(self, parent=None, current_key=None):
@@ -134,13 +146,20 @@ class ApiKeyDialog(QtWidgets.QDialog):
         button_layout = QtWidgets.QHBoxLayout()
         self.save_button = QtWidgets.QPushButton("Save")
         self.cancel_button = QtWidgets.QPushButton("Cancel")
+        self.clear_button = QtWidgets.QPushButton("Clear Key")
         
         self.save_button.clicked.connect(self.accept)
         self.cancel_button.clicked.connect(self.reject)
+        self.clear_button.clicked.connect(self.clear_api_key)
         
         button_layout.addWidget(self.save_button)
+        button_layout.addWidget(self.clear_button)
         button_layout.addWidget(self.cancel_button)
+        
         layout.addLayout(button_layout)
+        
+        # 키가 없으면 Clear 버튼 비활성화
+        self.clear_button.setEnabled(current_key is not None)
         
         self.setLayout(layout)
     
@@ -154,6 +173,10 @@ class ApiKeyDialog(QtWidgets.QDialog):
     
     def get_api_key(self):
         return self.key_input.text().strip()
+        
+    def clear_api_key(self):
+        # 특별한 결과 코드를 사용하여 Clear 요청을 반환
+        self.done(QtWidgets.QDialog.Accepted + 1)
 
 class IDAAssistant(ida_idaapi.plugin_t):
     flags = ida_idaapi.PLUGIN_FIX
@@ -322,12 +345,21 @@ class IDAAssistant(ida_idaapi.plugin_t):
         
         # API 키 입력 대화상자 표시
         dialog = ApiKeyDialog(None, self.api_key)
-        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+        result = dialog.exec_()
+        
+        if result == QtWidgets.QDialog.Accepted:
+            # API 키 저장
             self.api_key = dialog.get_api_key()
             if self.api_key:
                 # API 키 저장 및 클라이언트 초기화
                 self.api_key_manager.save_api_key(self.api_key)
                 return self.initialize_client()
+        elif result == QtWidgets.QDialog.Accepted + 1:
+            # API 키 삭제 요청
+            if self.api_key_manager.delete_api_key():
+                self.api_key = None
+                self.client = None
+                return False
         
         return False
 
@@ -540,10 +572,71 @@ class AssistantWidget(ida_kernwin.PluginForm):
     
     def OnSetApiKeyClicked(self):
         """API 키 설정 버튼 클릭 시 호출되는 함수"""
-        if self.assistant.ensure_api_key():
-            formatted_message = "API key has been configured successfully.".replace("\n", "<br>")
-            self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+        # 이미 API 키가 있는 경우 메시지 박스 표시
+        if self.assistant.api_key:
+            msg_box = QtWidgets.QMessageBox()
+            msg_box.setWindowTitle("API Key 설정")
+            msg_box.setText("API 키가 이미 설정되어 있습니다. 변경하시겠습니까?")
+            msg_box.setIcon(QtWidgets.QMessageBox.Information)
+            msg_box.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            result = msg_box.exec_()
+            
+            if result == QtWidgets.QMessageBox.No:
+                return
         
+        # API 키 입력 대화상자 표시
+        dialog = ApiKeyDialog(None, self.assistant.api_key)
+        result = dialog.exec_()
+        
+        if result == QtWidgets.QDialog.Accepted:
+            # API 키 저장
+            new_api_key = dialog.get_api_key()
+            if new_api_key:
+                self.assistant.api_key = new_api_key
+                self.assistant.api_key_manager.save_api_key(new_api_key)
+                self.assistant.initialize_client()
+                
+                # 메시지 박스로 성공 메시지 표시
+                QtWidgets.QMessageBox.information(
+                    None, 
+                    "API Key 설정", 
+                    "API 키가 성공적으로 설정되었습니다.",
+                    QtWidgets.QMessageBox.Ok
+                )
+            else:
+                QtWidgets.QMessageBox.warning(
+                    None, 
+                    "API Key 설정", 
+                    "API 키가 비어있습니다. 유효한 API 키를 입력해주세요.",
+                    QtWidgets.QMessageBox.Ok
+                )
+        
+        elif result == QtWidgets.QDialog.Accepted + 1:
+            # API 키 삭제 요청
+            if self.assistant.api_key_manager.delete_api_key():
+                self.assistant.api_key = None
+                self.assistant.client = None
+                
+                # 메시지 박스로 삭제 성공 메시지 표시
+                QtWidgets.QMessageBox.information(
+                    None, 
+                    "API Key 삭제", 
+                    "API 키가 성공적으로 삭제되었습니다.",
+                    QtWidgets.QMessageBox.Ok
+                )
+                
+                # 채팅 히스토리에 메시지 추가
+                formatted_message = "API key has been deleted. Please configure a new API key to use IDA Assistant.".replace("\n", "<br>")
+                self.chat_history.append(f"<b>System Message:</b> {formatted_message}")
+            else:
+                # 메시지 박스로 삭제 실패 메시지 표시
+                QtWidgets.QMessageBox.warning(
+                    None, 
+                    "API Key 삭제", 
+                    "API 키 삭제 중 오류가 발생했습니다.",
+                    QtWidgets.QMessageBox.Ok
+                )
+
     def OnStopClicked(self):
         # 대화가 활성화된 상태에서만 작동
         if not self.conversation_active:
